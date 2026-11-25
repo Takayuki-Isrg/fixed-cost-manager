@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>サブスク・固定費管理</title>
+<script type="application/json" id="claude-artifacts-manifest">{"permissions": []}</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+/* VOICE: 落ち着いた実務ツール
+   IDEA: 家計簿の明細一枚
+   PICTURE: 合計カード・フォーム・一覧と横棒グラフ（前版デザインを維持）
+   COLOUR and TYPE: 白地＋青1色、Noto Sans JP
+   LAYOUT: 1画面、600px以下で縦積み */
+:root{color-scheme:light dark;
+  --bg:light-dark(#f4f5f7,#16181c);--card:light-dark(#ffffff,#1f2228);--ink:light-dark(#1f2328,#e6e8eb);
+  --sub:light-dark(#57606a,#a0a8b2);--line:light-dark(#d8dee4,#343a42);--line2:light-dark(#eaeef2,#2a2f36);
+  --field:light-dark(#afb8c1,#4a525c);--accent:light-dark(#1d4ed8,#6b93ff);--onaccent:light-dark(#ffffff,#0b1220);
+  --track:light-dark(#eaeef2,#2a2f36);--danger:light-dark(#b42318,#ff8a80);--dangerline:light-dark(#f1aeb5,#6b2b2b);
+  --sel:light-dark(#eff6ff,#1c2a48)}
+:root[data-theme=light]{color-scheme:light}:root[data-theme=dark]{color-scheme:dark}
+*{box-sizing:border-box;min-width:0}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 'Noto Sans JP',system-ui,sans-serif;overflow-x:clip}
+.wrap{max-width:1120px;margin:0 auto;padding:32px 20px;display:flex;flex-direction:column;gap:24px}
+header{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:8px}
+h1{margin:0;font-size:26px;font-weight:700;letter-spacing:.02em}
+h2{margin:0;font-size:17px;font-weight:700}h3{margin:0;font-size:15px;font-weight:700}
+.muted{margin:0;font-size:13px;color:var(--sub)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:24px}
+.totals{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px}
+.total{padding:20px 24px;display:flex;flex-direction:column;gap:6px}
+.total b{font-size:clamp(26px,4vw,32px);font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap}
+.main{display:flex;flex-wrap:wrap;gap:24px;align-items:flex-start}
+form{flex:1 1 320px;display:flex;flex-direction:column;gap:16px}
+.list{flex:999 1 560px;display:flex;flex-direction:column;gap:16px}
+.field{display:flex;flex-direction:column;gap:6px}
+label{font-size:13px;font-weight:500}
+input{font:inherit;font-size:16px;height:44px;padding:0 12px;border:1px solid var(--field);border-radius:8px;background:var(--card);color:var(--ink)}
+input:focus,button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.err{margin:0;font-size:13px;color:var(--danger)}
+.btns{display:flex;flex-wrap:wrap;gap:8px}
+button{font:inherit;cursor:pointer;border-radius:8px;height:44px;padding:0 20px;border:1px solid var(--field);background:var(--card);color:var(--ink)}
+.primary{border:none;background:var(--accent);color:var(--onaccent);font-weight:700}
+.scroll{overflow-x:auto}
+table{width:100%;min-width:520px;border-collapse:collapse;font-size:14px}
+th{padding:8px;border-bottom:1px solid var(--line);font-weight:500;color:var(--sub);font-size:12px;text-align:left}
+td{padding:10px 8px;border-bottom:1px solid var(--line2)}
+.r{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.nm{font-weight:500;overflow-wrap:anywhere}
+.ops{text-align:right;white-space:nowrap;padding:6px 8px}
+.ops button{height:36px;min-width:56px;padding:0 12px;font-size:13px;border-radius:6px}
+.ops .del{margin-left:6px;border-color:var(--dangerline);color:var(--danger)}
+tr.sel td{background:var(--sel)}
+.empty{margin:0;padding:24px 0;font-size:14px;color:var(--sub);text-align:center}
+.bars{display:flex;flex-direction:column;gap:10px}
+.bar{display:grid;grid-template-columns:minmax(80px,160px) minmax(0,1fr) auto;gap:12px;align-items:center;font-size:13px}
+.bar span:first-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.track{height:20px;background:var(--track);border-radius:4px;overflow:hidden}
+.fill{height:100%;border-radius:4px;background:var(--accent);transition:width .3s}
+.bar .r{color:var(--sub)}
+.foot{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between}
+#install{height:36px;font-size:13px}
+[hidden]{display:none!important}
+@media(prefers-reduced-motion:reduce){.fill{transition:none}}
+@media(max-width:600px){.bar{grid-template-columns:minmax(0,1fr) auto}.bar .track{grid-column:1/-1;grid-row:2}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>サブスク・固定費管理 v0.2</h1>
+    <p class="muted">登録件数 <span id="count">0</span> 件</p>
+  </header>
+
+  <section class="totals" aria-label="費用の集計">
+    <div class="card total"><span class="muted">月間費用</span><b id="monthly">¥0</b></div>
+    <div class="card total"><span class="muted">年間費用（月額 × 12）</span><b id="yearly">¥0</b></div>
+  </section>
+
+  <div class="main">
+    <form id="form" class="card" novalidate>
+      <h2 id="formTitle">契約を追加</h2>
+      <div class="field"><label for="f-name">契約名</label>
+        <input id="f-name" type="text" maxlength="60" placeholder="例：動画配信サービス" autocomplete="off"></div>
+      <div class="field"><label for="f-fee">月額料金（円）</label>
+        <input id="f-fee" type="number" min="0" step="1" inputmode="numeric" placeholder="例：1490"></div>
+      <div class="field"><label for="f-date">次回更新日</label>
+        <input id="f-date" type="date"></div>
+      <p id="err" class="err" role="alert" hidden></p>
+      <div class="btns">
+        <button type="submit" class="primary" id="submit">追加する</button>
+        <button type="button" id="cancel" hidden>キャンセル</button>
+      </div>
+    </form>
+
+    <section class="card list" aria-label="登録済みの契約">
+      <h2>契約一覧</h2>
+      <p id="empty" class="empty">まだ契約が登録されていません。左のフォームから追加してください。</p>
+      <div id="has" hidden>
+        <div class="scroll">
+          <table>
+            <thead><tr><th>契約名</th><th class="r">月額</th><th>次回更新日</th><th class="r">操作</th></tr></thead>
+            <tbody id="rows"></tbody>
+          </table>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:12px;padding-top:24px">
+          <h3>契約別の月額費用</h3>
+          <div id="bars" class="bars" role="img" aria-label="契約別の月額費用"></div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <div class="foot">
+    <p class="muted" id="store">読み込み中…</p>
+    <button type="button" id="install" hidden>アプリとしてインストール</button>
+  </div>
+</div>
+
+<script>
+{
+const KEY = 'subs-manager-v1';
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const yen = (n) => '¥' + Math.round(Number(n) || 0).toLocaleString('ja-JP');
+
+let subs = [];
+let editingId = null;
+let docRef = null;      // db document for this person
+let writing = false, dirty = false;
+
+function clean(list) {
+  if (!Array.isArray(list)) return [];
+  return list.filter((s) => s && typeof s.id === 'string' && typeof s.name === 'string')
+    .map((s) => ({ id: s.id, name: s.name.slice(0, 60), fee: Math.max(0, Math.round(Number(s.fee) || 0)),
+      date: /^\d{4}-\d{2}-\d{2}$/.test(s.date) ? s.date : '' }));
+}
+function readLocal() { try { return clean(JSON.parse(localStorage.getItem(KEY) || '[]')); } catch (e) { return []; } }
+function writeLocal() { try { localStorage.setItem(KEY, JSON.stringify(subs)); } catch (e) {} }
+
+async function flush() {
+  if (!docRef) return;
+  if (writing) { dirty = true; return; }
+  writing = true;
+  do {
+    dirty = false;
+    try { await docRef.set({ items: subs, updatedAt: new Date().toISOString() }); setStore('cloud'); }
+    catch (e) { setStore('error', e && e.code); break; }
+  } while (dirty);
+  writing = false;
+}
+function persist() { writeLocal(); flush(); }
+
+function setStore(mode, code) {
+  const t = {
+    cloud: 'データは Claude アカウントに保存されています（あなただけが閲覧できます）。',
+    local: 'データはこの端末のブラウザ内にのみ保存されています。',
+    error: 'クラウドへの保存に失敗しました。この端末には保存されています。' + (code ? '（' + code + '）' : '')
+  };
+  $('store').textContent = t[mode] || '';
+}
+
+function render() {
+  const sorted = subs.slice().sort((a, b) => (a.date || '9').localeCompare(b.date || '9'));
+  const monthly = subs.reduce((t, s) => t + s.fee, 0);
+  $('count').textContent = subs.length;
+  $('monthly').textContent = yen(monthly);
+  $('yearly').textContent = yen(monthly * 12);
+  $('empty').hidden = subs.length > 0;
+  $('has').hidden = subs.length === 0;
+  $('rows').innerHTML = sorted.map((s) => `<tr class="${s.id === editingId ? 'sel' : ''}">
+    <td class="nm">${esc(s.name)}</td><td class="r">${yen(s.fee)}</td>
+    <td class="r" style="text-align:left">${esc((s.date || '').replace(/-/g, '/'))}</td>
+    <td class="ops"><button type="button" data-edit="${esc(s.id)}" aria-label="${esc(s.name)}を編集">編集</button><button type="button" class="del" data-del="${esc(s.id)}" aria-label="${esc(s.name)}を削除">削除</button></td></tr>`).join('');
+  const byFee = subs.slice().sort((a, b) => b.fee - a.fee);
+  const max = byFee.length ? byFee[0].fee : 0;
+  $('bars').innerHTML = byFee.map((s) => {
+    const w = max > 0 ? Math.max(2, s.fee / max * 100) : 0;
+    const pct = monthly > 0 ? Math.round(s.fee / monthly * 100) : 0;
+    return `<div class="bar" aria-hidden="true"><span>${esc(s.name)}</span><div class="track"><div class="fill" style="width:${w}%"></div></div><span class="r">${yen(s.fee)}（${pct}%）</span></div>`;
+  }).join('');
+  $('bars').setAttribute('aria-label', '契約別の月額費用：' + byFee.map((s) => s.name + ' ' + yen(s.fee)).join('、'));
+  $('formTitle').textContent = editingId ? '契約を編集' : '契約を追加';
+  $('submit').textContent = editingId ? '更新する' : '追加する';
+  $('cancel').hidden = !editingId;
+}
+
+function showErr(msg) { $('err').textContent = msg; $('err').hidden = !msg; }
+function resetForm() { editingId = null; $('form').reset(); showErr(''); render(); }
+
+$('form').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const name = $('f-name').value.trim(), feeRaw = $('f-fee').value, date = $('f-date').value, fee = Number(feeRaw);
+  if (!name) return showErr('契約名を入力してください。');
+  if (feeRaw === '' || !isFinite(fee) || fee < 0) return showErr('月額料金を0以上の数値で入力してください。');
+  if (!date) return showErr('次回更新日を選択してください。');
+  const item = { name: name.slice(0, 60), fee: Math.round(fee), date };
+  if (editingId) subs = subs.map((s) => s.id === editingId ? { id: s.id, ...item } : s);
+  else subs = subs.concat([{ id: 's' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), ...item }]);
+  persist(); resetForm();
+});
+$('cancel').addEventListener('click', resetForm);
+['f-name', 'f-fee', 'f-date'].forEach((id) => $(id).addEventListener('input', () => showErr('')));
+$('rows').addEventListener('click', (e) => {
+  const b = e.target.closest('button'); if (!b) return;
+  if (b.dataset.edit) {
+    const s = subs.find((x) => x.id === b.dataset.edit); if (!s) return;
+    editingId = s.id; $('f-name').value = s.name; $('f-fee').value = s.fee; $('f-date').value = s.date;
+    showErr(''); render(); $('f-name').focus();
+  } else if (b.dataset.del) {
+    subs = subs.filter((x) => x.id !== b.dataset.del);
+    if (editingId === b.dataset.del) resetForm(); else render();
+    persist();
+  }
+});
+
+function drawIcon() {
+  const c = document.createElement('canvas'); c.width = c.height = 256;
+  const g = c.getContext('2d');
+  g.fillStyle = '#1d4ed8'; g.beginPath(); g.roundRect(16, 16, 224, 224, 52); g.fill();
+  g.fillStyle = '#ffffff';
+  [[64, 150, 28, 46], [114, 118, 28, 78], [164, 86, 28, 110]].forEach(([x, y, w, h]) => { g.beginPath(); g.roundRect(x, y, w, h, 6); g.fill(); });
+  g.fillRect(56, 204, 144, 8);
+  return c.toDataURL('image/png');
+}
+
+// 初期表示：まず端末内のデータで描画し、使えればアカウント保存へ切り替える
+subs = readLocal(); render(); setStore('local');
+
+(async () => {
+  try {
+    const [db, user] = await Promise.all([claude.use('db'), claude.use('user')]);
+    const uid = user ? await user.id() : null;
+    if (db && uid) {
+      docRef = db.doc('data/users/' + uid + '/subscriptions');
+      const snap = await docRef.get();
+      if (snap.exists) { subs = clean(snap.data().items); writeLocal(); render(); setStore('cloud'); }
+      else if (subs.length) { await flush(); }
+      else setStore('cloud');
+    }
+  } catch (e) { docRef = null; setStore('local'); }
+})();
+
+(async () => {
+  try {
+    const desktop = await claude.use('desktop');
+    if (!desktop) return;
+    if (desktop.app) { desktop.app.dock.setIcon(drawIcon()).catch(() => {}); return; }
+    if ((await desktop.install.state()) === 'available') {
+      const b = $('install'); b.hidden = false;
+      b.onclick = () => desktop.install.request().then((r) => { if (r === 'installed') b.hidden = true; }).catch(() => {});
+    }
+  } catch (e) {}
+})();
+}
+</script>
+</body>
+</html>
